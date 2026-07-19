@@ -22,6 +22,28 @@ All notable changes to Bindery are documented here. Format loosely follows
   author-ID lookup (DNB) now derives its `metadataProvider` from the foreign-ID
   prefix instead of defaulting to `openlibrary`, so the stored row's provider and
   `foreign_id` agree. Closes #1574.
+- **A DNB author catalogue no longer fills with near-duplicate rows for the same
+  book** (#1574) — DNB, unlike OpenLibrary, has no "work" abstraction: it returns
+  a separate record per edition, printing, and physical volume, each with a
+  slightly different MARC title (*Die Furcht des Weisen*, *Die Furcht des Weisen
+  (1): …*, *Die Furcht des Weisen/Band 1: …*). The catalogue's title-based dedup
+  never collapsed them because the strings differ, so a single two-volume book
+  showed up as five rows. DNB author works are now grouped by (work title, volume
+  number) — with the volume read from the title marker (`(1)`, `/Band 1`, `Teil
+  2`, …) or MARC 245 `$n` — so the printings of each volume collapse to one row
+  while distinct volumes stay separate: *Die Furcht des Weisen* now imports as two
+  entries (*Die Furcht des Weisen 1* / *2*), not five. When a work has numbered
+  volumes its redundant combined single-volume edition is dropped, and a
+  standalone title with a real subtitle is left untouched. Editions catalogued
+  under a collective/series title also collapse onto the standalone book: DNB
+  spells the individual title out in MARC 245 `$p` (e.g. *Die Königsmörder-Chronik
+  / Tag 1 / Der Name des Windes*), which Bindery now reads so the record resolves
+  to *Der Name des Windes* and merges with the standalone edition — a match no
+  shared ISBN would reveal, since they are different printings. Finally, a record
+  whose own title is one of the author's series names (e.g. the complete-series
+  audiobook *Die Königsmörder-Chronik : vollständige Lesung*, recognised via the
+  series titles the individual books declare in MARC 490/800) is dropped rather
+  than listed as a book.
 
 ## [v1.26.1] — 2026-07-18
 

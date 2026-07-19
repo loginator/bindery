@@ -456,31 +456,29 @@ func (h *AuthorHandler) fetchAuthorBooksAsync(author *models.Author, autoSearch 
 }
 
 func (h *AuthorHandler) fetchAuthorForCreate(ctx context.Context, foreignID, fallbackName string) (*models.Author, error) {
-	if h.meta == nil {
+	// The provider is derived from the foreign-ID prefix, not hardcoded to
+	// OpenLibrary: DNB's SRU exposes no author-ID lookup, so GetAuthor always
+	// errors for a "dnb:" ID and we fall through to this synthesised record —
+	// which must still carry the DNB provider so the row's metadata_provider
+	// agrees with its foreign_id (#1574).
+	fallback := func() *models.Author {
 		return &models.Author{
 			ForeignID:        foreignID,
 			Name:             fallbackName,
 			SortName:         sortName(fallbackName),
-			MetadataProvider: "openlibrary",
-		}, nil
+			MetadataProvider: models.AuthorProviderFromForeignID(foreignID),
+		}
+	}
+	if h.meta == nil {
+		return fallback(), nil
 	}
 	author, err := h.meta.GetAuthor(ctx, foreignID)
 	if err != nil {
 		slog.Warn("metadata lookup failed, using provided name", "foreignID", foreignID, "error", err)
-		return &models.Author{
-			ForeignID:        foreignID,
-			Name:             fallbackName,
-			SortName:         sortName(fallbackName),
-			MetadataProvider: "openlibrary",
-		}, nil
+		return fallback(), nil
 	}
 	if author == nil {
-		return &models.Author{
-			ForeignID:        foreignID,
-			Name:             fallbackName,
-			SortName:         sortName(fallbackName),
-			MetadataProvider: "openlibrary",
-		}, nil
+		return fallback(), nil
 	}
 	if strings.TrimSpace(author.Name) == "" {
 		author.Name = fallbackName

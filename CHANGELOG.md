@@ -18,8 +18,10 @@ All notable changes to Bindery are documented here. Format loosely follows
   went out under the wrong title. The dedupe now prefers the configured primary
   provider's record outright, falling back to the most-complete record only
   among records from the same provider. Author search results are also tagged
-  with their source provider so the stored author keeps the right
-  `metadataProvider`. Closes #1574.
+  with their source provider, and a newly added author whose provider exposes no
+  author-ID lookup (DNB) now derives its `metadataProvider` from the foreign-ID
+  prefix instead of defaulting to `openlibrary`, so the stored row's provider and
+  `foreign_id` agree. Closes #1574.
 
 ## [v1.26.1] — 2026-07-18
 

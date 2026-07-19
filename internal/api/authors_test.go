@@ -142,6 +142,30 @@ func (p *stubMetaProvider) GetAuthorWorksByName(_ context.Context, _ string) ([]
 	return p.authorWorksByName, nil
 }
 
+// TestFetchAuthorForCreate_DerivesProviderFromForeignID verifies the synthesised
+// fallback author (built when the provider has no author-ID lookup, as with DNB)
+// carries the provider implied by its foreign-ID prefix rather than a hardcoded
+// "openlibrary". Otherwise a DNB author would be stored with a "dnb:" foreign_id
+// but metadata_provider="openlibrary", contradicting each other (#1574).
+func TestFetchAuthorForCreate_DerivesProviderFromForeignID(t *testing.T) {
+	// stub named "dnb" so the aggregator routes the "dnb:" ID here; GetAuthor
+	// returns nil (author == nil), reproducing DNB's no-ID-lookup fallback.
+	stub := &stubMetaProvider{name: "dnb"}
+	agg := metadata.NewAggregator(stub)
+	h := NewAuthorHandler(nil, nil, nil, nil, agg, nil, nil, nil)
+
+	author, err := h.fetchAuthorForCreate(context.Background(), "dnb:1362635146", "Patrick Rothfuss")
+	if err != nil {
+		t.Fatalf("fetchAuthorForCreate: %v", err)
+	}
+	if author.ForeignID != "dnb:1362635146" {
+		t.Errorf("foreign id = %q, want dnb:1362635146", author.ForeignID)
+	}
+	if author.MetadataProvider != "dnb" {
+		t.Errorf("metadata provider = %q, want dnb (derived from foreign id)", author.MetadataProvider)
+	}
+}
+
 func enableHardcoverFeatureForTest(t *testing.T, ctx context.Context, settings *db.SettingsRepo) {
 	t.Helper()
 	if err := settings.Set(ctx, SettingHardcoverAPIToken, "hc-test-token"); err != nil {

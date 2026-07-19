@@ -6,6 +6,21 @@ All notable changes to Bindery are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Fixed
+- **Choosing DNB as the primary metadata provider is now honored when adding an
+  author** (#1574) — author search fans out to every provider and collapses the
+  same person's records to one, but that collapse preferred whichever record
+  reported a work count / ratings. DNB carries neither and OpenLibrary carries
+  both, so the OpenLibrary record always won even when DNB was configured as
+  primary. The added author therefore got an OpenLibrary identity, its catalogue
+  imported with English OpenLibrary work titles (e.g. *The Wise Man's Fear*
+  instead of the German DNB title *Die Furcht des Weisen*), and book searches
+  went out under the wrong title. The dedupe now prefers the configured primary
+  provider's record outright, falling back to the most-complete record only
+  among records from the same provider. Author search results are also tagged
+  with their source provider so the stored author keeps the right
+  `metadataProvider`. Closes #1574.
+
 ## [v1.26.1] — 2026-07-18
 
 A patch release fixing three reported bugs: dual-format downloads serving the

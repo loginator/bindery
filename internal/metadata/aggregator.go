@@ -74,9 +74,18 @@ func (a *Aggregator) SearchAuthors(ctx context.Context, query string) ([]models.
 
 	var all []models.Author
 	for i := range providers {
-		all = append(all, results[i]...)
+		provider := normalizedProviderName(providerName(providers[i]))
+		for _, author := range results[i] {
+			// Tag provenance so dedupe can prefer the configured primary provider's
+			// record over an enricher's, and so the stored author carries the right
+			// MetadataProvider. Providers that already set it (DNB) are left alone.
+			if strings.TrimSpace(author.MetadataProvider) == "" {
+				author.MetadataProvider = provider
+			}
+			all = append(all, author)
+		}
 	}
-	merged := dedupeAuthorsByName(all)
+	merged := dedupeAuthorsByName(all, normalizedProviderName(providerName(a.primary)))
 	rerankAuthorsByRelevance(merged, query)
 	return merged, nil
 }
@@ -235,18 +244,21 @@ func authorBookCount(a models.Author) int {
 }
 
 // dedupeAuthorsByName collapses records that refer to the same person (canonical
-// name) to the single most-complete one — most works, then most ratings (each
-// compared only when both report it, since only some providers populate them),
-// then the earliest (provider-first) occurrence. Records with an empty name pass
-// through untouched. Output order follows the kept records' positions.
-func dedupeAuthorsByName(authors []models.Author) []models.Author {
+// name) to a single representative: the configured primary provider's record
+// wins outright (so the collapsed identity routes catalogue import back to the
+// primary — #1574), and only among records from the same provider do we fall
+// back to most-complete — most works, then most ratings (each compared only when
+// both report it, since only some providers populate them), then the earliest
+// (provider-first) occurrence. Records with an empty name pass through untouched.
+// Output order follows the kept records' positions.
+func dedupeAuthorsByName(authors []models.Author, primary string) []models.Author {
 	best := make(map[string]int)
 	for i := range authors {
 		key := canonicalAuthorKey(authors[i].Name)
 		if key == "" {
 			continue
 		}
-		if j, ok := best[key]; !ok || betterAuthorRecord(authors[i], authors[j]) {
+		if j, ok := best[key]; !ok || betterAuthorRecord(authors[i], authors[j], primary) {
 			best[key] = i
 		}
 	}
@@ -261,10 +273,16 @@ func dedupeAuthorsByName(authors []models.Author) []models.Author {
 }
 
 // betterAuthorRecord reports whether record a is a more complete representative
-// of an author than b. A provider that reports a count (>0) is preferred over
-// one that doesn't (0 = unknown), so OpenLibrary's work/ratings-bearing records
-// win over enrichers that omit them; ties keep the earlier (provider-first) one.
-func betterAuthorRecord(a, b models.Author) bool {
+// of an author than b. The configured primary provider's record wins outright,
+// regardless of work count or ratings, so choosing DNB as primary is honored
+// even though DNB carries no work-count/ratings and OpenLibrary does (#1574).
+// Among records from the same provider a count (>0) is preferred over one that
+// doesn't (0 = unknown), so OpenLibrary's work/ratings-bearing records win over
+// its own partial fragments; ties keep the earlier (provider-first) one.
+func betterAuthorRecord(a, b models.Author, primary string) bool {
+	if c := preferPrimaryProviderAuthor(a, b, primary); c != 0 {
+		return c > 0
+	}
 	if c := preferNonDuplicatedAuthorName(a.Name, b.Name); c != 0 {
 		return c > 0
 	}
@@ -275,6 +293,26 @@ func betterAuthorRecord(a, b models.Author) bool {
 		return c > 0
 	}
 	return false
+}
+
+// preferPrimaryProviderAuthor prefers the record whose provider matches the
+// configured primary metadata provider. It only decides between records from
+// different providers; two records from the same provider (or a primary of "")
+// tie so the completeness comparison below still de-fragments a provider's own
+// partial records. Returns +1 if a is from the primary, -1 if b is, 0 otherwise.
+func preferPrimaryProviderAuthor(a, b models.Author, primary string) int {
+	if primary == "" {
+		return 0
+	}
+	aPrimary := normalizedProviderName(a.MetadataProvider) == primary
+	bPrimary := normalizedProviderName(b.MetadataProvider) == primary
+	if aPrimary == bPrimary {
+		return 0
+	}
+	if aPrimary {
+		return 1
+	}
+	return -1
 }
 
 // preferNonDuplicatedAuthorName prefers a clean author label over provider noise

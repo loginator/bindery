@@ -397,6 +397,34 @@ func TestAggregator_SearchAuthors_PrefersCleanNameOverDuplicatedProviderNoise(t 
 	}
 }
 
+func TestAggregator_SearchAuthors_PrimaryProviderWinsDedup(t *testing.T) {
+	// DNB is primary. It returns the author with no work-count/ratings, while the
+	// OpenLibrary enricher returns the same person with a known BookCount. The
+	// primary provider's record must win the collapse so the author's identity
+	// (and thus catalogue import) routes to DNB rather than OpenLibrary (#1574).
+	primary := &mockProvider{name: "dnb", searchAuthors: []models.Author{
+		{Name: "Patrick Rothfuss", ForeignID: "dnb:118904", MetadataProvider: "dnb"},
+	}}
+	enricher := &mockProvider{name: "openlibrary", searchAuthors: []models.Author{
+		{Name: "Patrick Rothfuss", ForeignID: "OL5735167A", MetadataProvider: "openlibrary", Statistics: &models.AuthorStats{BookCount: 20}, RatingsCount: 5000},
+	}}
+	agg := newTestAggregator(primary, enricher)
+
+	got, err := agg.SearchAuthors(context.Background(), "Patrick Rothfuss")
+	if err != nil {
+		t.Fatalf("SearchAuthors: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("same person from two providers should collapse to 1, got %d: %+v", len(got), got)
+	}
+	if got[0].ForeignID != "dnb:118904" {
+		t.Errorf("primary (DNB) record must win the collapse, got %s (provider %q)", got[0].ForeignID, got[0].MetadataProvider)
+	}
+	if normalizedProviderName(got[0].MetadataProvider) != "dnb" {
+		t.Errorf("kept author must carry the DNB provider identity, got %q", got[0].MetadataProvider)
+	}
+}
+
 func TestAggregator_SearchAuthors_RanksRelevanceAcrossProviders(t *testing.T) {
 	primary := &mockProvider{name: "ol", searchAuthors: []models.Author{
 		{Name: "Arthur Conan Doyle", ForeignID: "OLx", Statistics: &models.AuthorStats{BookCount: 50}}, // weak match, popular
